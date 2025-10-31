@@ -63,6 +63,13 @@ namespace CCCoreLib
 		**/
 		virtual void addTriangle(unsigned i1, unsigned i2, unsigned i3);
 
+		//! Set the triangle array to the mesh
+		/**
+			\param data the triangle array
+			\param count the triangle count
+		**/
+		void setTriangleArray(const VerticesIndexes* data, const int count);
+
 		//! Reserves the memory to store the triangles (as 3 indexes each)
 		/** \param n the number of triangles to reserve
 			\return true if the method succeeds, false otherwise

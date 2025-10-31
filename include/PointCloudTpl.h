@@ -341,6 +341,19 @@ namespace CCCoreLib
 			m_bbox.setValidity(false);
 		}
 
+		//! Set a 3D point array to the database
+		/**
+			\param data a 3D point array
+			\param pointCount the point count
+		**/
+		void setPointArray(const CCVector3* data, const int pointCount)
+		{
+			m_points.resize(pointCount);
+			memcpy(m_points.data(), data, sizeof(CCVector3));
+
+			m_bbox.setValidity(false);
+		}
+
 		//! Invalidates bounding box
 		/** Bounding box will be recomputed next time a request is made to 'getBoundingBox'.
 		**/

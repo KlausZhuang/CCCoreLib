@@ -100,6 +100,20 @@ void SimpleMesh::addTriangle(unsigned i1, unsigned i2, unsigned i3)
 	m_bbox.setValidity(false);
 }
 
+void CCCoreLib::SimpleMesh::setTriangleArray(const VerticesIndexes* data, const int count)
+{
+	try
+	{
+		triIndexes.resize(count);
+	}
+	catch (const std::bad_alloc&)
+	{
+		return;
+	}
+    memcpy(&triIndexes[0], data, count * sizeof(VerticesIndexes));
+    m_bbox.setValidity(false);
+}
+
 bool SimpleMesh::reserve(unsigned n)
 {
 	try

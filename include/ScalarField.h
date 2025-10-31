@@ -11,6 +11,9 @@
 #include <vector>
 #include <string>
 
+// VE-6644: Not sure why the compiler can't recognize the exported functions for linux_arm7 if exporting the class ScalarField or any of its methods.
+//          So I just put all methods implementation in the header file for now.
+
 namespace CCCoreLib
 {
 	//! A simple scalar field (to be associated to a point cloud)
@@ -22,7 +25,7 @@ namespace CCCoreLib
 
 		Invalid values can be represented by CCCoreLib::NAN_VALUE.
 	**/
-	class ScalarField : protected std::vector<float>, public CCShareable
+	class ScalarField : public std::vector<float>, public CCShareable
 	{
 	public:
 
@@ -41,16 +44,42 @@ namespace CCCoreLib
 		/** [SHAREABLE] Call 'link' when associating this structure to an object.
 			\param name scalar field name
 		**/
-		CC_CORE_LIB_API explicit ScalarField(const std::string& name = std::string());
+		explicit ScalarField(const std::string& name = std::string())
+			: m_name{ }
+			, m_offset{ 0.0 }
+			, m_offsetHasBeenSet{ false }
+			, m_localMinVal{ 0.0f }
+			, m_localMaxVal{ 0.0f }
+		{
+			setName(name);
+		}
 
 		//! Copy constructor
 		/** \param sf scalar field to copy
 			\warning May throw a std::bad_alloc exception
 		**/
-		CC_CORE_LIB_API ScalarField(const ScalarField& sf);
+		ScalarField(const ScalarField& sf)
+			: std::vector<float>(sf)
+			, m_name{ sf.m_name }
+			, m_offset{ sf.m_offset }
+			, m_offsetHasBeenSet{ sf.m_offsetHasBeenSet }
+			, m_localMinVal{ sf.m_localMinVal }
+			, m_localMaxVal{ sf.m_localMaxVal }
+		{
+		}
 
 		//! Sets scalar field name
-		CC_CORE_LIB_API void setName(const std::string& name);
+		void setName(const std::string& name)
+		{
+			if (name.empty())
+			{
+				m_name = "Undefined";
+			}
+			else
+			{
+				m_name = name;
+			}
+		}
 
 		//! Returns scalar field name
 		inline const std::string& getName() const { return m_name; }
@@ -91,10 +120,49 @@ namespace CCCoreLib
 		/** \param mean a field to store the mean value
 			\param variance if not void, the variance will be computed and stored here
 		**/
-		CC_CORE_LIB_API void computeMeanAndVariance(ScalarType& mean, ScalarType* variance = nullptr) const;
+		void computeMeanAndVariance(ScalarType& mean, ScalarType* variance = nullptr) const
+		{
+			double _mean = 0.0;
+			double _std2 = 0.0;
+			std::size_t count = 0;
+
+			for (std::size_t i = 0; i < size(); ++i)
+			{
+				float val = at(i);
+				if (std::isfinite(val))
+				{
+					_mean += val;
+					_std2 += static_cast<double>(val) * val;
+					++count;
+				}
+			}
+
+			if (count)
+			{
+				_mean /= count;
+				mean = _mean;
+
+				if (variance)
+				{
+					_std2 = std::abs(_std2 / count - _mean * _mean);
+					*variance = static_cast<ScalarType>(_std2);
+				}
+
+				mean += m_offset; // only after the standard deviation has been calculated!
+
+			}
+			else
+			{
+				mean = 0;
+				if (variance)
+				{
+					*variance = 0;
+				}
+			}
+		}
 
 		//! Determines the min and max values
-		CC_CORE_LIB_API virtual void computeMinAndMax();
+		virtual void computeMinAndMax();
 
 		//! Returns whether a scalar value is valid or not
 		static inline bool ValidValue(ScalarType value) { return std::isfinite(value); }
@@ -103,7 +171,27 @@ namespace CCCoreLib
 		inline void flagValueAsInvalid(std::size_t index) { (*this)[index] = std::numeric_limits<float>::quiet_NaN(); }
 
 		//! Returns the number of valid values in this scalar field
-		CC_CORE_LIB_API std::size_t countValidValues() const;
+		std::size_t countValidValues() const
+		{
+			if (false == std::isfinite(m_offset))
+			{
+				// special case: if the offset is invalid, all values become invalid!
+				return size();
+			}
+
+			std::size_t count = 0;
+
+			for (std::size_t i = 0; i < size(); ++i)
+			{
+				const ScalarType& val = at(i);
+				if (ValidValue(val))
+				{
+					++count;
+				}
+			}
+
+			return count;
+		}
 
 		//! Returns the minimum value
 		inline ScalarType getMin() const { return m_offset + m_localMinVal; }
@@ -148,9 +236,60 @@ namespace CCCoreLib
 		}
 
 		//! Reserves memory (no exception thrown)
-		CC_CORE_LIB_API bool reserveSafe(std::size_t count);
+		bool reserveSafe(std::size_t count)
+		{
+			try
+			{
+				reserve(count);
+			}
+			catch (const std::bad_alloc&)
+			{
+				//not enough memory
+				return false;
+			}
+			return true;
+		}
 		//! Resizes memory (no exception thrown)
-		CC_CORE_LIB_API bool resizeSafe(std::size_t count, bool initNewElements = false, ScalarType valueForNewElements = 0);
+		bool resizeSafe(std::size_t count, bool initNewElements = false, ScalarType valueForNewElements = 0)
+		{
+			try
+			{
+				if (initNewElements && count > size())
+				{
+					float fillValueF = 0.0f;
+					if (std::isfinite(valueForNewElements))
+					{
+						if (m_offsetHasBeenSet)
+						{
+							// use the already set offset
+							fillValueF = static_cast<float>(valueForNewElements - m_offset);
+						}
+						else // if the offset has not been set yet...
+						{
+							// we use the first finite value as offset by default
+							setOffset(valueForNewElements);
+						}
+					}
+					else
+					{
+						// special case: filling with NaN or +/-inf values
+						fillValueF = static_cast<float>(valueForNewElements); // NaN/-inf/+inf should be maintained
+					}
+
+					resize(count, fillValueF);
+				}
+				else
+				{
+					resize(count);
+				}
+			}
+			catch (const std::bad_alloc&)
+			{
+				//not enough memory
+				return false;
+			}
+			return true;
+		}
 
 		//Shortcuts (for backward compatibility)
 		inline ScalarType getValue(std::size_t index) const { return m_offset + (*this)[index]; }
@@ -210,7 +349,7 @@ namespace CCCoreLib
 		//! Default destructor
 		/** Call release instead.
 		**/
-		CC_CORE_LIB_API ~ScalarField() override = default;
+		~ScalarField() override = default;
 
 	protected: //members
 
